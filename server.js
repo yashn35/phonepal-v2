@@ -1,32 +1,4 @@
-// const WebSocket = require('ws');
-// const http = require('http');
-
-// const server = http.createServer();
-// const wss = new WebSocket.Server({ server });
-
-// const clients = new Set();
-
-// wss.on('connection', (ws) => {
-//   clients.add(ws);
-
-//   ws.on('message', (message) => {
-//     // Broadcast the message to all other clients
-//     for (const client of clients) {
-//       if (client !== ws && client.readyState === WebSocket.OPEN) {
-//         client.send(message);
-//       }
-//     }
-//   });
-
-//   ws.on('close', () => {
-//     clients.delete(ws);
-//   });
-// });
-
-// const PORT = 3001;
-// server.listen(PORT, () => {
-//   console.log(`WebSocket server is running on port ${PORT}`);
-// });
+// Current Version
 
 const WebSocket = require('ws');
 const http = require('http');
@@ -59,18 +31,49 @@ wss.on('connection', (ws) => {
   const clientId = Date.now().toString();
   clients.set(clientId, { ws, language: null, voiceId: null });
 
+  // ws.on('message', (message) => {
+  //   const data = JSON.parse(message);
+  //   if (data.type === 'language') {
+  //     clients.get(clientId).language = data.language;
+  //   } else if (data.type === 'voiceId') {
+  //     clients.get(clientId).voiceId = data.voiceId;
+  //   }
+  // });
+
+  // ws.on('close', () => {
+  //   clients.delete(clientId);
+  // });
   ws.on('message', (message) => {
-    const data = JSON.parse(message);
-    if (data.type === 'language') {
-      clients.get(clientId).language = data.language;
-    } else if (data.type === 'voiceId') {
-      clients.get(clientId).voiceId = data.voiceId;
+    try {
+      const data = JSON.parse(message);
+      
+      if (data.type === 'voiceId') {
+        ws.voiceId = data.voiceId;
+        console.log('Updated voiceId for client:', ws.voiceId);
+      } else if (data.type === 'language') {
+        ws.language = data.language;
+        clients.get(clientId).language = data.language;
+        console.log('Updated language for client:', ws.language);
+        // Broadcast the language to all other clients
+        clients.forEach((client, id) => {
+          if (id !== clientId && client.ws.readyState === WebSocket.OPEN) {
+            console.log("RECEIVED LANGUAGE", data.language)
+            client.ws.send(JSON.stringify({
+              type: 'language',
+              language: data.language
+            }));
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error parsing message:', error);
     }
   });
 
   ws.on('close', () => {
-    clients.delete(clientId);
+    clients.delete(ws);
   });
+
 });
 
 app.post('/process-audio', upload.single('audio'), async (req, res) => {
@@ -92,7 +95,12 @@ app.post('/process-audio', upload.single('audio'), async (req, res) => {
     
     // Send processed audio to the receiver
     for (const [id, client] of clients.entries()) {
+      console.log("ALL NEW")
+      console.log("receiverLanguage", receiverLanguage)
+      console.log("client.language", client.language)
+      console.log(client.language === receiverLanguage)
       if (client.language === receiverLanguage && client.ws.readyState === WebSocket.OPEN) {
+        console.log('Sending audio to client:', id, 'Language:', client.language);
         client.ws.send(audioBuffer, { binary: true });
       }
     }

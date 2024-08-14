@@ -1,4 +1,4 @@
-// NOT WORKING
+// CURRENT VERSION
 
 "use client";
 
@@ -27,7 +27,6 @@ export default function Home() {
     const [userVoiceId, setUserVoiceId] = useState<string | null>(null);
     const [receivedAudio, setReceivedAudio] = useState<string | null>(null);
 
-
     const vad = useMicVAD({
         startOnLoad: true,
         onSpeechEnd: async (audio) => {
@@ -39,7 +38,8 @@ export default function Home() {
                 formData.append('audio', blob);
                 formData.append('voiceId', 'a0e99841-438c-4a64-b679-ae501e7d6091');
                 formData.append('senderLanguage', selectedLanguage);
-                formData.append('receiverLanguage', 'es');
+                formData.append('senderLanguage', selectedLanguage);
+                formData.append('receiverLanguage', partnerLanguage || 'es');
 
                 const response = await fetch('http://localhost:3001/process-audio', {
                     method: 'POST',
@@ -83,7 +83,7 @@ export default function Home() {
         ws.onopen = () => {
             console.log('Connected to WebSocket server');
             
-            ws.send(JSON.stringify({ type: 'language', language: 'es' }));
+            ws.send(JSON.stringify({ type: 'language', language: selectedLanguage }));
             if (userVoiceId) {
                 ws.send(JSON.stringify({ type: 'voiceId', voiceId: userVoiceId }));
             }
@@ -114,7 +114,7 @@ export default function Home() {
 
         ws.onclose = () => {
             console.log('Disconnected from WebSocket server');
-            setWebsocket(null);
+            // setWebsocket(null);
         };
 
         return () => {
@@ -123,10 +123,13 @@ export default function Home() {
     }, [selectedLanguage, userVoiceId]);
 
     const handleLanguageChange = (e) => {
-        setSelectedLanguage(e.target.value);
+        const newLanguage = e.target.value
+        setSelectedLanguage(newLanguage);
+        
         if (websocket && websocket.readyState === WebSocket.OPEN) {
-            websocket.send(JSON.stringify({ type: 'language', language: e.target.value }));
-        }
+            console.log(newLanguage)
+            websocket.send(JSON.stringify({ type: 'language', language: newLanguage }));
+          }
     };
 
     const handleVoiceClone = async (e) => {
@@ -201,4 +204,3 @@ export default function Home() {
         </>
     );
 }
-
