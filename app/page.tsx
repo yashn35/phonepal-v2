@@ -13,8 +13,8 @@ const languages = [
   { code: "es", name: "Spanish" },
   { code: "fr", name: "French" },
   { code: "de", name: "German" },
-  { code: "zh", name: "Chinese" },
-  { code: "ja", name: "Japanese" },
+//   { code: "zh", name: "Chinese" },
+//   { code: "ja", name: "Japanese" },
 ];
 
 export default function Home() {
@@ -36,8 +36,7 @@ export default function Home() {
             if (websocket && websocket.readyState === WebSocket.OPEN) {
                 const formData = new FormData();
                 formData.append('audio', blob);
-                formData.append('voiceId', 'a0e99841-438c-4a64-b679-ae501e7d6091');
-                formData.append('senderLanguage', selectedLanguage);
+                formData.append('voiceId', userVoiceId || 'a0e99841-438c-4a64-b679-ae501e7d6091');
                 formData.append('senderLanguage', selectedLanguage);
                 formData.append('receiverLanguage', partnerLanguage || 'es');
 
