@@ -95,10 +95,6 @@ app.post('/process-audio', upload.single('audio'), async (req, res) => {
     
     // Send processed audio to the receiver
     for (const [id, client] of clients.entries()) {
-      console.log("ALL NEW")
-      console.log("receiverLanguage", receiverLanguage)
-      console.log("client.language", client.language)
-      console.log(client.language === receiverLanguage)
       if (client.language === receiverLanguage && client.ws.readyState === WebSocket.OPEN) {
         console.log('Sending audio to client:', id, 'Language:', client.language);
         client.ws.send(audioBuffer, { binary: true });
