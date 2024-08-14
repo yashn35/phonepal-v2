@@ -26,6 +26,8 @@ export default function Home() {
     const [partnerLanguage, setPartnerLanguage] = useState("");
     const [userVoiceId, setUserVoiceId] = useState<string | null>(null);
     const [receivedAudio, setReceivedAudio] = useState<string | null>(null);
+    const audioQueue = useRef<Blob[]>([]);
+    const isPlaying = useRef(false);
 
     const vad = useMicVAD({
         startOnLoad: true,
@@ -90,11 +92,8 @@ export default function Home() {
         
         ws.onmessage = (event) => {
             if (event.data instanceof Blob) {
-              // Handle binary audio data
-              player.play(event.data.stream(), () => {
-                const isFirefox = navigator.userAgent.includes("Firefox");
-                if (isFirefox) vad.start();
-              });
+            audioQueue.current.push(event.data);
+            playNextInQueue();
             } else if (typeof event.data === 'string') {
               // Handle string data (possibly JSON)
               try {
@@ -120,6 +119,19 @@ export default function Home() {
             ws.close();
         };
     }, [selectedLanguage, userVoiceId]);
+
+    const playNextInQueue = () => {
+        if (audioQueue.current.length > 0 && !isPlaying.current) {
+            isPlaying.current = true;
+            const nextAudio = audioQueue.current.shift();
+            player.play(nextAudio!.stream(), () => {
+                const isFirefox = navigator.userAgent.includes("Firefox");
+                if (isFirefox) vad.start();
+                isPlaying.current = false;
+                playNextInQueue(); // Play the next audio in queue when current one finishes
+            });
+        }
+    };    
 
     const handleLanguageChange = (e) => {
         const newLanguage = e.target.value
