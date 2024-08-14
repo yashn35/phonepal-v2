@@ -1,29 +1,236 @@
+// const WebSocket = require('ws');
+// const http = require('http');
+
+// const server = http.createServer();
+// const wss = new WebSocket.Server({ server });
+
+// const clients = new Set();
+
+// wss.on('connection', (ws) => {
+//   clients.add(ws);
+
+//   ws.on('message', (message) => {
+//     // Broadcast the message to all other clients
+//     for (const client of clients) {
+//       if (client !== ws && client.readyState === WebSocket.OPEN) {
+//         client.send(message);
+//       }
+//     }
+//   });
+
+//   ws.on('close', () => {
+//     clients.delete(ws);
+//   });
+// });
+
+// const PORT = 3001;
+// server.listen(PORT, () => {
+//   console.log(`WebSocket server is running on port ${PORT}`);
+// });
+
 const WebSocket = require('ws');
 const http = require('http');
+const express = require('express');
+const multer = require('multer');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
+const cors = require('cors');
+const groq = require('groq-sdk');
 
-const server = http.createServer();
+const app = express();
+const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const clients = new Set();
+app.use(cors({
+  origin: 'http://localhost:3000', // Allow requests from Next.js dev server
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json());
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+require('dotenv').config({ path: '.env.local' });
+const groqClient = new groq.Groq({ apiKey: process.env.GROQ_API_KEY });
+
+const clients = new Map();
 
 wss.on('connection', (ws) => {
-  clients.add(ws);
+  const clientId = Date.now().toString();
+  clients.set(clientId, { ws, language: null, voiceId: null });
 
   ws.on('message', (message) => {
-    // Broadcast the message to all other clients
-    for (const client of clients) {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
+    const data = JSON.parse(message);
+    if (data.type === 'language') {
+      clients.get(clientId).language = data.language;
+    } else if (data.type === 'voiceId') {
+      clients.get(clientId).voiceId = data.voiceId;
     }
   });
 
   ws.on('close', () => {
-    clients.delete(ws);
+    clients.delete(clientId);
   });
 });
 
+app.post('/process-audio', upload.single('audio'), async (req, res) => {
+  try {
+    const voiceId = req.body.voiceId || "a0e99841-438c-4a64-b679-ae501e7d6091";
+    const receiverLanguage = req.body.receiverLanguage;
+    
+    // Transcribe audio
+    const transcription = await getTranscript(req);
+    console.log("TRANSCRIPTION", transcription)
+    
+    // Translate text
+    const translation = await translateText(transcription, receiverLanguage);
+    console.log("TRANSLATION", translation)
+    
+    // Generate audio from translated text
+    const audioBuffer = await generateAudio(translation, voiceId, receiverLanguage);
+    console.log("AUDIO", audioBuffer)
+    
+    // Send processed audio to the receiver
+    for (const [id, client] of clients.entries()) {
+      if (client.language === receiverLanguage && client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(audioBuffer, { binary: true });
+      }
+    }
+    
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Error processing audio:', error);
+    res.status(500).json({ error: 'Failed to process audio' });
+  }
+});
+
+app.post('/clone-voice', upload.single('voiceSample'), async (req, res) => {
+  try {
+    const form = new FormData();
+    form.append('clip', req.file.buffer, {
+      filename: 'voice_sample.wav',
+      contentType: req.file.mimetype,
+    });
+
+    // Clone the voice
+    const cloneResponse = await fetch('https://api.cartesia.ai/voices/clone/clip', {
+      method: 'POST',
+      headers: {
+        'Cartesia-Version': '2024-06-10',
+        'X-API-Key': process.env.CARTESIA_API_KEY,
+        ...form.getHeaders()
+      },
+      body: form
+    });
+
+    if (!cloneResponse.ok) {
+      throw new Error(`Failed to clone voice: ${await cloneResponse.text()}`);
+    }
+
+    const clonedVoice = await cloneResponse.json();
+
+    // Create a voice with the embedding
+    const createVoiceResponse = await fetch('https://api.cartesia.ai/voices', {
+      method: 'POST',
+      headers: {
+        'Cartesia-Version': '2024-06-10',
+        'X-API-Key': process.env.CARTESIA_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: `Cloned Voice ${Date.now()}`,
+        description: "A voice cloned from an audio sample.",
+        embedding: clonedVoice.embedding
+      })
+    });
+
+    if (!createVoiceResponse.ok) {
+      throw new Error(`Failed to create voice: ${await createVoiceResponse.text()}`);
+    }
+
+    const createdVoice = await createVoiceResponse.json();
+    res.json({ voiceId: createdVoice.id });
+  } catch (error) {
+    console.error('Error cloning voice:', error);
+    res.status(500).json({ error: 'Failed to clone voice', details: error.message });
+  }
+});
+
+async function getTranscript(rawAudio) {
+  const form = new FormData();
+  form.append('file', rawAudio.file.buffer, {
+    filename: 'audio.webm',
+    contentType: rawAudio.file.mimetype,
+  });
+  form.append('model', 'whisper-large-v3');
+  form.append('temperature', '0');
+  form.append('response_format', 'json');
+
+  const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+      ...form.getHeaders()
+    },
+    body: form
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(JSON.stringify(errorData));
+  }
+
+  const data = await response.json();
+  return data.text.trim() || null;
+
+}
+
+async function translateText(text, targetLanguage) {
+  const completion = await groqClient.chat.completions.create({
+    messages: [
+      {
+        role: "system",
+        content: `You are a TRANSLATOR. ONLY TRANSLATE THE INPUT TEXT INTO THE TARGET LANGUAGE. DO NOT INCLUDE ANYTHING BUT THE TRANSLATION`,
+      },
+      {
+        role: "user",
+        content: `Translate the following sentence into ${targetLanguage}; ONLY INCLUDE TRANSLATION, NOTHING ELSE: ${text}`,
+      },
+    ],
+    model: "llama3-8b-8192",
+    temperature: 0.5,
+    max_tokens: 1024,
+  });
+
+  return completion.choices[0].message.content;
+}
+
+async function generateAudio(text, voiceId, language) {
+  const response = await fetch("https://api.cartesia.ai/tts/bytes", {
+    method: 'POST',
+    headers: {
+      "Cartesia-Version": "2024-06-10",
+      "X-API-Key": process.env.CARTESIA_API_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      "transcript": text,
+      "model_id": language === "en" ? "sonic-english" : "sonic-multilingual", // MULTILINGUAL NOT GETTING SET
+      "voice": {"mode":"id", "id": voiceId},
+      "output_format":{"container":"raw", "encoding":"pcm_f32le", "sample_rate":44100},
+      "language": language
+    })
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`HTTP error! status: ${response.status}, body: ${errorBody}`);
+  }
+
+  return await response.arrayBuffer();
+}
+
 const PORT = 3001;
 server.listen(PORT, () => {
-  console.log(`WebSocket server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
