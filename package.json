@@ -6,7 +6,8 @@
 		"dev": "next dev",
 		"build": "next build",
 		"start": "node server.js",
-		"lint": "next lint"
+		"lint": "next lint",
+		"heroku-postbuild": "npm run build"
 	},
 	"dependencies": {
 		"@ricky0123/vad-react": "^0.0.24",
