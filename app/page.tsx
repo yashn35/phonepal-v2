@@ -17,17 +17,24 @@ const languages = [
 //   { code: "ja", name: "Japanese" },
 ];
 
+interface CustomWebSocket extends WebSocket {
+    clientId?: string;
+}  
+
 export default function Home() {
-    const [input, setInput] = useState("");
-    const inputRef = useRef<HTMLInputElement>(null);
-    const player = usePlayer();
-    const [websocket, setWebsocket] = useState<WebSocket | null>(null);
+    const [step, setStep] = useState<'setup' | 'call'>('setup');
     const [selectedLanguage, setSelectedLanguage] = useState("en");
-    const [partnerLanguage, setPartnerLanguage] = useState("");
     const [userVoiceId, setUserVoiceId] = useState<string | null>(null);
-    const [receivedAudio, setReceivedAudio] = useState<string | null>(null);
+    const [websocket, setWebsocket] = useState<CustomWebSocket | null>(null);
+    const [partnerLanguage, setPartnerLanguage] = useState("");
+    const [input, setInput] = useState("");
     const audioQueue = useRef<Blob[]>([]);
+    const player = usePlayer();
     const isPlaying = useRef(false);
+
+    // Caller ID
+    const [callId, setCallId] = useState("");
+    const [isInCall, setIsInCall] = useState(false);
 
     const vad = useMicVAD({
         startOnLoad: true,
@@ -35,12 +42,14 @@ export default function Home() {
             player.stop();
             const wav = utils.encodeWAV(audio);
             const blob = new Blob([wav], { type: "audio/wav" });
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
+            if (websocket && websocket.readyState === WebSocket.OPEN && isInCall) {
                 const formData = new FormData();
                 formData.append('audio', blob);
                 formData.append('voiceId', userVoiceId || 'a0e99841-438c-4a64-b679-ae501e7d6091');
                 formData.append('senderLanguage', selectedLanguage);
                 formData.append('receiverLanguage', partnerLanguage || 'es');
+                formData.append('callId', callId);
+                formData.append('senderId', websocket.clientId); 
 
                 const response = await fetch('http://localhost:3001/process-audio', {
                     method: 'POST',
@@ -78,40 +87,41 @@ export default function Home() {
     });
 
     useEffect(() => {
-        const ws = new WebSocket('ws://localhost:3001');
-        setWebsocket(ws);
-        
-        ws.onopen = () => {
-            console.log('Connected to WebSocket server');
+            const ws = new WebSocket('ws://localhost:3001') as CustomWebSocket;
+            setWebsocket(ws);
             
-            ws.send(JSON.stringify({ type: 'language', language: selectedLanguage }));
-            if (userVoiceId) {
-                ws.send(JSON.stringify({ type: 'voiceId', voiceId: userVoiceId }));
-            }
-        };
-        
-        ws.onmessage = (event) => {
-            if (event.data instanceof Blob) {
-            audioQueue.current.push(event.data);
-            playNextInQueue();
-            } else if (typeof event.data === 'string') {
-              // Handle string data (possibly JSON)
-              try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'language') {
-                  setPartnerLanguage(data.language);
+            ws.onopen = () => {
+                console.log('Connected to WebSocket server');
+                ws.send(JSON.stringify({ type: 'language', language: selectedLanguage }));
+                if (userVoiceId) {
+                    ws.send(JSON.stringify({ type: 'voiceId', voiceId: userVoiceId }));
                 }
-              } catch (error) {
-                console.error('Error parsing WebSocket message:', error);
-              }
-            } else {
-              console.warn('Received unknown data type from WebSocket:', typeof event.data);
-            }
-          };
-          
+            };
+        
+            ws.onmessage = (event) => {
+                if (event.data instanceof Blob) {
+                    audioQueue.current.push(event.data);
+                    playNextInQueue();
+                } else if (typeof event.data === 'string') {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'language') {
+                            setPartnerLanguage(data.language);
+                        } else if (data.type === 'callCreated' || data.type === 'callJoined') {
+                            setCallId(data.callId);
+                            setIsInCall(true);
+                        } else if (data.type === 'error') {
+                            console.error('WebSocket error:', data.message);
+                        }
+                    } catch (error) {
+                        console.error('Error parsing WebSocket message:', error);
+                    }
+                }
+            };
 
         ws.onclose = () => {
             console.log('Disconnected from WebSocket server');
+            setIsInCall(false);
             // setWebsocket(null);
         };
 
@@ -132,6 +142,25 @@ export default function Home() {
             });
         }
     };    
+
+    const handleProfileComplete = (language: string, voiceId: string) => {
+        setSelectedLanguage(language);
+        setUserVoiceId(voiceId);
+        setStep('call');
+    };
+
+    const createCall = () => {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(JSON.stringify({ type: 'createCall' }));
+        }
+    };
+
+    const joinCall = (inputCallId: string) => {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(JSON.stringify({ type: 'joinCall', callId: inputCallId }));
+        }
+    };
+
 
     const handleLanguageChange = (e) => {
         const newLanguage = e.target.value
@@ -164,9 +193,34 @@ export default function Home() {
         }
     };
 
+
     return (
         <>
             <div className="pb-4 min-h-28" />
+
+            <div className="text-neutral-400 dark:text-neutral-600 pt-4 text-center max-w-xl text-balance min-h-28 space-y-4">
+                {websocket ? (
+                    isInCall ? (
+                        <p>In call: {callId}</p>
+                    ) : (
+                        <>
+                            <button onClick={createCall}>Create Call</button>
+                            <div>
+                                <input
+                                    type="text"
+                                    placeholder="Enter Call ID"
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                />
+                                <button onClick={() => joinCall(input)}>Join Call</button>
+                            </div>
+                        </>
+                    )
+                ) : (
+                    <p>Connecting to WebSocket server...</p>
+                )} 
+                
+                </div>
 
             <div className="text-neutral-400 dark:text-neutral-600 pt-4 text-center max-w-xl text-balance min-h-28 space-y-4">
                 {websocket ? (
