@@ -263,7 +263,7 @@ export default function Home() {
                     {userVoiceId && <p>Voice ID: {userVoiceId}</p>}
                 </div>
 
-                <p>Partner's language: {languages.find(lang => lang.code === partnerLanguage)?.name || 'Not selected'}</p>
+                <p>Partner&apos;s language: {languages.find(lang => lang.code === partnerLanguage)?.name || 'Not selected'}</p>
             </div>
 
             <div
