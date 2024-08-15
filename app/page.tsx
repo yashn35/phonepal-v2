@@ -50,7 +50,7 @@ export default function Home() {
                 formData.append('senderLanguage', selectedLanguage);
                 formData.append('receiverLanguage', partnerLanguage || 'es');
                 formData.append('callId', callId);
-                formData.append('senderId', websocket.clientId); 
+                // formData.append('senderId', websocket.clientId); 
 
                 const response = await fetch(`${API_URL}/process-audio`, {
                     method: 'POST',
