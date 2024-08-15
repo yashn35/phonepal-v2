@@ -23,6 +23,7 @@ const nextConfig = {
 			},
 		];
 	},
+	vercelAnalytics: false,
 };
 
 export default nextConfig;
