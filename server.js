@@ -12,6 +12,11 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// const next = require('next');
+// const dev = process.env.NODE_ENV !== 'production';
+// const nextApp = next({ dev });
+// const nextHandler = nextApp.getRequestHandler();
+
 app.use(cors({
   origin: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
   methods: ['GET', 'POST', 'OPTIONS'],
