@@ -1,5 +1,3 @@
-// Current Version
-
 const WebSocket = require('ws');
 const http = require('http');
 const express = require('express');
@@ -15,11 +13,10 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 app.use(cors({
-  origin: 'http://localhost:3000', // Allow requests from Next.js dev server
+  origin: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -29,43 +26,6 @@ const groqClient = new groq.Groq({ apiKey: process.env.GROQ_API_KEY });
 // const clients = new Map();
 const calls = new Map(); 
 const clientLanguages = new Map();
-
-// wss.on('connection', (ws) => {
-//   const clientId = Date.now().toString();
-//   clients.set(clientId, { ws, language: null, voiceId: null });
-
-//   ws.on('message', (message) => {
-//     try {
-//       const data = JSON.parse(message);
-      
-//       if (data.type === 'voiceId') {
-//         ws.voiceId = data.voiceId;
-//         console.log('Updated voiceId for client:', ws.voiceId);
-//       } else if (data.type === 'language') {
-//         ws.language = data.language;
-//         clients.get(clientId).language = data.language;
-//         console.log('Updated language for client:', ws.language);
-//         // Broadcast the language to all other clients
-//         clients.forEach((client, id) => {
-//           if (id !== clientId && client.ws.readyState === WebSocket.OPEN) {
-//             console.log("RECEIVED LANGUAGE", data.language)
-//             client.ws.send(JSON.stringify({
-//               type: 'language',
-//               language: data.language
-//             }));
-//           }
-//         });
-//       }
-//     } catch (error) {
-//       console.error('Error parsing message:', error);
-//     }
-//   });
-
-//   ws.on('close', () => {
-//     clients.delete(ws);
-//   });
-
-// });
 
 wss.on('connection', (ws) => {
   
@@ -123,9 +83,11 @@ wss.on('connection', (ws) => {
 function broadcastLanguage(sender) {
   if (sender.callId && calls.has(sender.callId)) {
     console.log(`Broadcasting language update in call ${sender.callId}`);
-    calls.get(sender.callId).forEach(client => {
-      if (client !== sender && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({
+    calls.get(sender.callId).forEach(currentClient => {
+      console.log("sender", sender.callId)
+      console.log("client", currentClient.callId)
+      if (currentClient !== sender && currentClient.readyState === WebSocket.OPEN) {
+        currentClient.send(JSON.stringify({
           type: 'language',
           language: sender.language
         }));
@@ -140,29 +102,31 @@ app.post('/process-audio', upload.single('audio'), async (req, res) => {
     const receiverLanguage = req.body.receiverLanguage;
     const callId = req.body.callId;
     
+    // TODO: Let's time this to see how long each step takes 
     const transcription = await getTranscript(req);
-    const translation = await translateText(transcription, receiverLanguage);
-    const audioBuffer = await generateAudio(translation, voiceId, receiverLanguage);
     console.log("TRANSCRIPTION", transcription)
+    const translation = await translateText(transcription, receiverLanguage);
     console.log("TRANSLATION", translation)
+    const audioBuffer = await generateAudio(translation, voiceId, receiverLanguage);
     console.log("AUDIO GENERATED", audioBuffer)
     
     if (calls.has(callId)) {
       calls.get(callId).forEach(client => {
         console.log("-----------------------------------")
-        // console.log("CLIENT", client)
         console.log("callID", callId)
         console.log(client.language === receiverLanguage)
         console.log(client.language)
         console.log("senderLanguage", req.body.senderLanguage)
         console.log("receiverLanguage", receiverLanguage)
         console.log("-----------------------------------")
-        // if (client.language === receiverLanguage && client.readyState === WebSocket.OPEN) { // This line deals with the sending logic of audio 
+
+        /* TODO: 
+        We can check for this based on the caller ID instead of if the languages are the same, because the sender and reciever may have the same language choice. 
+        Moreover, if the sender and reciever do have the same language choice then we should just send the raw audio data instead of going through the translation process. 
+        */
+        if (client.readyState === WebSocket.OPEN && client.language === receiverLanguage) {
           client.send(audioBuffer, { binary: true });
-        // }
-        // if (client.readyState === WebSocket.OPEN && clientLanguages.get(client.clientId) !== senderLanguage) {
-        //   client.send(audioBuffer, { binary: true });
-        // }
+        }
       });
     }
     
@@ -172,92 +136,6 @@ app.post('/process-audio', upload.single('audio'), async (req, res) => {
     res.status(500).json({ error: 'Failed to process audio' });
   }
 });
-
-
-
-// NEW process-audio
-
-// app.post('/process-audio', upload.single('audio'), async (req, res) => {
-//   try {
-//     const voiceId = req.body.voiceId || "a0e99841-438c-4a64-b679-ae501e7d6091";
-//     const senderLanguage = req.body.senderLanguage;
-//     const callId = req.body.callId;
-//     const senderId = req.body.senderId;
-    
-//     if (calls.has(callId)) {
-//       const clients = Array.from(calls.get(callId));
-//       const originalAudio = req.file.buffer; // The original audio file
-//       console.log("clients")
-//       for (const client of clients) {
-
-//         console.log("---------------------------------")
-//         console.log("client.clientId", client.clientId)
-//         console.log("senderId", senderId)
-//         console.log("---------------------------------")
-
-//         if (client.readyState === WebSocket.OPEN && client.clientId !== senderId) {
-//           const receiverLanguage = clientLanguages.get(client.clientId);
-//           print("receiverLanguage", receiverLanguage)
-          
-//           // If the sender and receiver have the same language 
-//           if (receiverLanguage === senderLanguage) {
-//             // Send original audio without translation
-//             console.log(`Sending original audio to client ${client.clientId}`);
-//             client.send(originalAudio, { binary: true });
-//           } else {
-//             // Transcribe the audio 
-//             const transcription = await getTranscript(req);
-//             console.log("TRANSCRIPTION", transcription);
-//             // Translate and generate new audio
-//             const translation = await translateText(transcription, receiverLanguage);
-//             console.log("TRANSLATION", translation);
-//             const audioBuffer = await generateAudio(translation, voiceId, receiverLanguage);
-//             console.log("AUDIO GENERATED for", client.clientId);
-//             // Send the audio 
-//             client.send(audioBuffer, { binary: true });
-//           }
-//         }
-//       }
-//     }
-    
-//     res.status(200).json({ success: true });
-//   } catch (error) {
-//     console.error('Error processing audio:', error);
-//     res.status(500).json({ error: 'Failed to process audio' });
-//   }
-// });
-
-// app.post('/process-audio', upload.single('audio'), async (req, res) => {
-//   try {
-//     const voiceId = req.body.voiceId || "a0e99841-438c-4a64-b679-ae501e7d6091";
-//     const receiverLanguage = req.body.receiverLanguage;
-    
-//     // Transcribe audio
-//     const transcription = await getTranscript(req);
-//     console.log("TRANSCRIPTION", transcription)
-    
-//     // Translate text
-//     const translation = await translateText(transcription, receiverLanguage);
-//     console.log("TRANSLATION", translation)
-    
-//     // Generate audio from translated text
-//     const audioBuffer = await generateAudio(translation, voiceId, receiverLanguage);
-//     console.log("AUDIO", audioBuffer)
-    
-//     // Send processed audio to the receiver
-//     for (const [id, client] of clients.entries()) {
-//       if (client.language === receiverLanguage && client.ws.readyState === WebSocket.OPEN) {
-//         console.log('Sending audio to client:', id, 'Language:', client.language);
-//         client.ws.send(audioBuffer, { binary: true });
-//       }
-//     }
-    
-//     res.status(200).json({ success: true });
-//   } catch (error) {
-//     console.error('Error processing audio:', error);
-//     res.status(500).json({ error: 'Failed to process audio' });
-//   }
-// });
 
 app.post('/clone-voice', upload.single('voiceSample'), async (req, res) => {
   try {
@@ -385,7 +263,136 @@ async function generateAudio(text, voiceId, language) {
   return await response.arrayBuffer();
 }
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+
+
+
+// OLD
+
+
+// wss.on('connection', (ws) => {
+//   const clientId = Date.now().toString();
+//   clients.set(clientId, { ws, language: null, voiceId: null });
+
+//   ws.on('message', (message) => {
+//     try {
+//       const data = JSON.parse(message);
+      
+//       if (data.type === 'voiceId') {
+//         ws.voiceId = data.voiceId;
+//         console.log('Updated voiceId for client:', ws.voiceId);
+//       } else if (data.type === 'language') {
+//         ws.language = data.language;
+//         clients.get(clientId).language = data.language;
+//         console.log('Updated language for client:', ws.language);
+//         // Broadcast the language to all other clients
+//         clients.forEach((client, id) => {
+//           if (id !== clientId && client.ws.readyState === WebSocket.OPEN) {
+//             console.log("RECEIVED LANGUAGE", data.language)
+//             client.ws.send(JSON.stringify({
+//               type: 'language',
+//               language: data.language
+//             }));
+//           }
+//         });
+//       }
+//     } catch (error) {
+//       console.error('Error parsing message:', error);
+//     }
+//   });
+
+//   ws.on('close', () => {
+//     clients.delete(ws);
+//   });
+
+// });
+
+
+
+// NEW process-audio
+
+// app.post('/process-audio', upload.single('audio'), async (req, res) => {
+//   try {
+//     const voiceId = req.body.voiceId || "a0e99841-438c-4a64-b679-ae501e7d6091";
+//     const senderLanguage = req.body.senderLanguage;
+//     const callId = req.body.callId;
+//     const senderId = req.body.senderId;
+    
+//     if (calls.has(callId)) {
+//       const clients = Array.from(calls.get(callId));
+//       const originalAudio = req.file.buffer; // The original audio file
+//       console.log("clients")
+//       for (const client of clients) {
+
+//         console.log("---------------------------------")
+//         console.log("client.clientId", client.clientId)
+//         console.log("senderId", senderId)
+//         console.log("---------------------------------")
+
+//         if (client.readyState === WebSocket.OPEN && client.clientId !== senderId) {
+//           const receiverLanguage = clientLanguages.get(client.clientId);
+//           print("receiverLanguage", receiverLanguage)
+          
+//           // If the sender and receiver have the same language 
+//           if (receiverLanguage === senderLanguage) {
+//             // Send original audio without translation
+//             console.log(`Sending original audio to client ${client.clientId}`);
+//             client.send(originalAudio, { binary: true });
+//           } else {
+//             // Transcribe the audio 
+//             const transcription = await getTranscript(req);
+//             console.log("TRANSCRIPTION", transcription);
+//             // Translate and generate new audio
+//             const translation = await translateText(transcription, receiverLanguage);
+//             console.log("TRANSLATION", translation);
+//             const audioBuffer = await generateAudio(translation, voiceId, receiverLanguage);
+//             console.log("AUDIO GENERATED for", client.clientId);
+//             // Send the audio 
+//             client.send(audioBuffer, { binary: true });
+//           }
+//         }
+//       }
+//     }
+    
+//     res.status(200).json({ success: true });
+//   } catch (error) {
+//     console.error('Error processing audio:', error);
+//     res.status(500).json({ error: 'Failed to process audio' });
+//   }
+// });
+
+// app.post('/process-audio', upload.single('audio'), async (req, res) => {
+//   try {
+//     const voiceId = req.body.voiceId || "a0e99841-438c-4a64-b679-ae501e7d6091";
+//     const receiverLanguage = req.body.receiverLanguage;
+    
+//     // Transcribe audio
+//     const transcription = await getTranscript(req);
+//     console.log("TRANSCRIPTION", transcription)
+    
+//     // Translate text
+//     const translation = await translateText(transcription, receiverLanguage);
+//     console.log("TRANSLATION", translation)
+    
+//     // Generate audio from translated text
+//     const audioBuffer = await generateAudio(translation, voiceId, receiverLanguage);
+//     console.log("AUDIO", audioBuffer)
+    
+//     // Send processed audio to the receiver
+//     for (const [id, client] of clients.entries()) {
+//       if (client.language === receiverLanguage && client.ws.readyState === WebSocket.OPEN) {
+//         console.log('Sending audio to client:', id, 'Language:', client.language);
+//         client.ws.send(audioBuffer, { binary: true });
+//       }
+//     }
+    
+//     res.status(200).json({ success: true });
+//   } catch (error) {
+//     console.error('Error processing audio:', error);
+//     res.status(500).json({ error: 'Failed to process audio' });
+//   }
+// });

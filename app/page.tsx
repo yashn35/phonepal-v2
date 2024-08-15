@@ -1,5 +1,3 @@
-// CURRENT VERSION
-
 "use client";
 
 import clsx from "clsx";
@@ -16,6 +14,9 @@ const languages = [
 //   { code: "zh", name: "Chinese" },
 //   { code: "ja", name: "Japanese" },
 ];
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001';
 
 interface CustomWebSocket extends WebSocket {
     clientId?: string;
@@ -51,7 +52,7 @@ export default function Home() {
                 formData.append('callId', callId);
                 formData.append('senderId', websocket.clientId); 
 
-                const response = await fetch('http://localhost:3001/process-audio', {
+                const response = await fetch(`${API_URL}/process-audio`, {
                     method: 'POST',
                     body: formData
                 });
@@ -87,7 +88,7 @@ export default function Home() {
     });
 
     useEffect(() => {
-            const ws = new WebSocket('ws://localhost:3001') as CustomWebSocket;
+            const ws = new WebSocket(WS_URL) as CustomWebSocket;
             setWebsocket(ws);
             
             ws.onopen = () => {
@@ -128,7 +129,19 @@ export default function Home() {
         return () => {
             ws.close();
         };
-    }, [selectedLanguage, userVoiceId]);
+    }, []);
+
+    useEffect(() => {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(JSON.stringify({ type: 'language', language: selectedLanguage }));
+        }
+    }, [selectedLanguage, websocket]);
+
+    useEffect(() => {
+        if (websocket && websocket.readyState === WebSocket.OPEN && userVoiceId) {
+            websocket.send(JSON.stringify({ type: 'voiceId', voiceId: userVoiceId }));
+        }
+    }, [userVoiceId, websocket]);
 
     const playNextInQueue = () => {
         if (audioQueue.current.length > 0 && !isPlaying.current) {
@@ -143,12 +156,6 @@ export default function Home() {
         }
     };    
 
-    const handleProfileComplete = (language: string, voiceId: string) => {
-        setSelectedLanguage(language);
-        setUserVoiceId(voiceId);
-        setStep('call');
-    };
-
     const createCall = () => {
         if (websocket && websocket.readyState === WebSocket.OPEN) {
             websocket.send(JSON.stringify({ type: 'createCall' }));
@@ -161,15 +168,19 @@ export default function Home() {
         }
     };
 
+    // const handleLanguageChange = (e) => {
+    //     const newLanguage = e.target.value
+    //     setSelectedLanguage(newLanguage);
+        
+    //     if (websocket && websocket.readyState === WebSocket.OPEN) {
+    //         console.log(newLanguage)
+    //         websocket.send(JSON.stringify({ type: 'language', language: newLanguage }));
+    //       }
+    // };
 
     const handleLanguageChange = (e) => {
-        const newLanguage = e.target.value
+        const newLanguage = e.target.value;
         setSelectedLanguage(newLanguage);
-        
-        if (websocket && websocket.readyState === WebSocket.OPEN) {
-            console.log(newLanguage)
-            websocket.send(JSON.stringify({ type: 'language', language: newLanguage }));
-          }
     };
 
     const handleVoiceClone = async (e) => {
@@ -177,7 +188,7 @@ export default function Home() {
         if (file) {
             const formData = new FormData();
             formData.append('voiceSample', file);
-            const response = await fetch('http://localhost:3001/clone-voice', {
+            const response = await fetch(`${API_URL}/clone-voice`, {
                 method: 'POST',
                 body: formData
             });
