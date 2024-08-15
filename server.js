@@ -10,13 +10,7 @@ const humanId = require('human-id'); // Human friendly caller ID
 
 const app = express();
 const server = http.createServer(app);
-server.on('upgrade', (request, socket, head) => {
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit('connection', ws, request);
-  });
-});
 const wss = new WebSocket.Server({ server });
-
 // const next = require('next');
 // const dev = process.env.NODE_ENV !== 'production';
 // const nextApp = next({ dev });
@@ -277,9 +271,6 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
-
-
-
 
 // OLD
 
