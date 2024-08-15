@@ -178,13 +178,13 @@ export default function Home() {
     //       }
     // };
 
-    const handleLanguageChange = (e) => {
+    const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newLanguage = e.target.value;
         setSelectedLanguage(newLanguage);
     };
 
-    const handleVoiceClone = async (e) => {
-        const file = e.target.files[0];
+    const handleVoiceClone = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
         if (file) {
             const formData = new FormData();
             formData.append('voiceSample', file);
