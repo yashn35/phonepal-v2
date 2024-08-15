@@ -16,9 +16,9 @@ const languages = [
 ];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'wss://phonepal-45acef6eb3a7.herokuapp.com';
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://phonepal-45acef6eb3a7.herokuapp.com';
 
-console.log("WS_URL", WS_URL)
+console.log(WS_URL)
 
 interface CustomWebSocket extends WebSocket {
     clientId?: string;
