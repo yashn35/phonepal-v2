@@ -1,3 +1,10 @@
+/*
+
+-Ideally we would chunk and stream in parts to reduce the latency, rather than wait until the turn is completely done
+-Have we actually tried testing conversation ands ee how it feels?
+-Might be interseting to allow both text and audio input
+*/
+
 "use client";
 
 import clsx from "clsx";
@@ -15,10 +22,13 @@ const languages = [
 //   { code: "ja", name: "Japanese" },
 ];
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'wss://phonepal-45acef6eb3a7.herokuapp.com';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://phonepal-45acef6eb3a7.herokuapp.com';
+// const API_URL = process.env.NEXT_PUBLIC_API_URL || 'wss://phonepal-45acef6eb3a7.herokuapp.com';
+// const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://phonepal-45acef6eb3a7.herokuapp.com';
 
-console.log(WS_URL)
+// const API_URL = 'http://localhost:3000/';
+// const WS_URL ='http://localhost:3000/';
+
+// console.log(WS_URL)
 
 interface CustomWebSocket extends WebSocket {
     clientId?: string;
@@ -54,7 +64,7 @@ export default function Home() {
                 formData.append('callId', callId);
                 // formData.append('senderId', websocket.clientId); 
 
-                const response = await fetch(`${API_URL}/process-audio`, {
+                const response = await fetch(`http://localhost:3010/process-audio`, {
                     method: 'POST',
                     body: formData
                 });
@@ -90,7 +100,7 @@ export default function Home() {
     });
 
     useEffect(() => {
-            const ws = new WebSocket(WS_URL) as CustomWebSocket;
+            const ws = new WebSocket('ws://localhost:3010') as CustomWebSocket;
             setWebsocket(ws);
             
             ws.onopen = () => {
@@ -190,7 +200,7 @@ export default function Home() {
         if (file) {
             const formData = new FormData();
             formData.append('voiceSample', file);
-            const response = await fetch(`${API_URL}/clone-voice`, {
+            const response = await fetch(`http://localhost:3010/clone-voice`, {
                 method: 'POST',
                 body: formData
             });
